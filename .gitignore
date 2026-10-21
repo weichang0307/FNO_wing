@@ -1,0 +1,16 @@
+# data: downloaded or rebuilt by build_dataset.py
+data/*
+!data/surface_template_sides.npz
+!data/norm_stats_full_128x256.json
+
+# training runs and checkpoints (this also excludes models/v1/best.pt)
+runs/
+runs_*.log
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+
+# local tool config
+.claude/

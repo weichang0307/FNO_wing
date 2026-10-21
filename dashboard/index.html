@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training monitor</title>
+<style>
+  :root {
+    --surface-0: #f4f3ef; --surface-1: #fcfcfb; --border: #e4e3dd; --grid: #ecebe6;
+    --text-primary: #1f1f1e; --text-secondary: #5f5e5a; --text-muted: #8a8983;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --target: #8a8983;
+    --good: #0f7b3e; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #33332f; --grid: #2a2a27;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --target: #8f8e86;
+      --good: #4fbf7f; --bad: #ef6b60;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 24px 32px; background: var(--surface-0); color: var(--text-primary);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 20px; margin-bottom: 16px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  select { font: inherit; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+           background: var(--surface-1); color: var(--text-primary); }
+  .status { color: var(--text-secondary); }
+  .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+          margin-right: 6px; vertical-align: 1px; }
+  .live.done { background: var(--text-muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile .label { color: var(--text-secondary); font-size: 12px; }
+  .tile .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .note { font-size: 12px; color: var(--text-muted); }
+  .tile .note.ok { color: var(--good); } .tile .note.off { color: var(--bad); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px 8px; position: relative; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .card .sub { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 5px; }
+  .legend i.dash { height: 0; border-top: 1.5px dashed var(--target); }
+  svg { display: block; width: 100%; height: 240px; overflow: visible; }
+  svg text { font-size: 11px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  svg .end { fill: var(--text-primary); font-size: 11px; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+         border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+         display: none; white-space: nowrap; z-index: 2; font-variant-numeric: tabular-nums; }
+  .tip b { font-weight: 600; }
+  .tip i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 5px; }
+  .empty { color: var(--text-muted); padding: 40px 0; text-align: center; }
+  @media (max-width: 520px) { body { padding: 16px; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Training monitor</h1>
+  <label>Run <select id="run"></select></label>
+  <span class="status" id="status">loading…</span>
+</header>
+<div class="tiles" id="tiles"></div>
+<div class="grid">
+  <div class="card">
+    <h2>Training vs validation loss</h2>
+    <p class="sub">Same measure on both: field relative L2 + surface relative L2. A widening gap means overfitting.</p>
+    <div class="legend" id="lg-loss"></div><svg id="ch-loss"></svg>
+  </div>
+  <div class="card">
+    <h2>Force error, median over validation cases</h2>
+    <p class="sub">Lift and drag integrated from the surface head.</p>
+    <div class="legend" id="lg-force"></div><svg id="ch-force"></svg>
+  </div>
+  <div class="card">
+    <h2>Validation field error</h2>
+    <p class="sub">Relative L2 over fluid cells, dimensionless units.</p>
+    <div class="legend" id="lg-field"></div><svg id="ch-field"></svg>
+  </div>
+  <div class="card">
+    <h2>Validation surface error</h2>
+    <p class="sub">Pressure and wall shear at the true surface points.</p>
+    <div class="legend" id="lg-surf"></div><svg id="ch-surf"></svg>
+  </div>
+</div>
+<script>
+const REFRESH_MS = 15000;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS = "http://www.w3.org/2000/svg";
+let current = null, timer = null;
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);  // Python's csv module writes \r\n
+  if (lines.length < 2) return [];
+  const head = lines[0].split(",").map(h => h.trim());
+  return lines.slice(1).map(l => Object.fromEntries(l.split(",").map((v, i) => [head[i], +v])));
+}
+async function fetchText(url) {
+  const r = await fetch(url + "?t=" + Date.now(), { cache: "no-store" });
+  return r.ok ? r.text() : null;
+}
+async function listRuns() {
+  const html = await fetchText("../runs/");
+  if (!html) return [];
+  const names = [...html.matchAll(/href="([^"?/]+)\/"/g)].map(m => decodeURIComponent(m[1]));
+  const out = [];
+  for (const n of names) {
+    const cfg = await fetchText(`../runs/${n}/config.json`);
+    if (cfg) out.push({ name: n, mtime: 0, cfg: JSON.parse(cfg) });
+  }
+  return out;
+}
+
+function logTicks(lo, hi) {
+  const t = [], decades = Math.log10(hi / lo);
+  const subs = decades > 2.5 ? [1, 3] : decades > 1.2 ? [1, 2, 5] : [1, 1.5, 2, 3, 5, 7];
+  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++)
+    for (const m of subs) { const v = m * 10 ** e; if (v >= lo && v <= hi) t.push(v); }
+  return t.length >= 2 ? t : [lo, hi];
+}
+const fmt = v => v >= 100 ? v.toFixed(0) : String(Number(v.toPrecision(3)));
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function lineChart(svgId, legendId, series, opts) {
+  const svg = document.getElementById(svgId), card = svg.parentElement;
+  const legend = document.getElementById(legendId);
+  svg.innerHTML = "";
+  legend.innerHTML = series.map(s => `<span><i style="background:${css(s.color)}"></i>${s.name}</span>`).join("")
+    + (opts.targets || []).map(t => `<span><i class="dash"></i>${t.label}</span>`).join("");
+  const pts = series.flatMap(s => s.points);
+  if (!pts.length) { svg.innerHTML = ""; return; }
+  const W = Math.max(svg.clientWidth, 320), H = 240, m = { l: 44, r: 58, t: 8, b: 26 };
+  const xMax = Math.max(opts.xMax, ...pts.map(p => p[0]));
+  const ys = pts.map(p => p[1]).concat((opts.targets || []).map(t => t.y)).filter(v => v > 0);
+  let lo = Math.min(...ys) / 1.15, hi = Math.max(...ys) * 1.15;
+  const X = x => m.l + (x / xMax) * (W - m.l - m.r);
+  const Y = y => m.t + (1 - (Math.log(y) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (H - m.t - m.b);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const grid = css("--grid");
+  for (const v of logTicks(lo, hi)) {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: grid }, svg);
+    el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v);
+  }
+  const step = xMax > 300 ? 100 : xMax > 120 ? 50 : xMax > 40 ? 20 : 5;
+  for (let x = 0; x <= xMax; x += step) {
+    el("line", { x1: X(x), x2: X(x), y1: m.t, y2: H - m.b, stroke: grid }, svg);
+    el("text", { x: X(x), y: H - 8, "text-anchor": "middle" }, svg).textContent = x;
+  }
+  el("text", { x: W - m.r + 18, y: H - 8, "text-anchor": "start" }, svg).textContent = "epoch";
+  for (const t of opts.targets || [])
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(t.y), y2: Y(t.y), stroke: css("--target"), "stroke-dasharray": "4 3" }, svg);
+  const ends = [];
+  for (const s of series) {
+    if (!s.points.length) continue;
+    const d = s.points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", stroke: css(s.color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    if (s.points.length < 40) for (const p of s.points)
+      el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 2.5, fill: css(s.color) }, svg);
+    const last = s.points[s.points.length - 1];
+    ends.push({ y: Y(last[1]), x: X(last[0]), label: s.short || s.name });
+  }
+  ends.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i++) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 13);
+  for (const e of ends) el("text", { x: e.x + 6, y: e.y + 4, class: "end" }, svg).textContent = e.label;
+
+  // hover: crosshair + tooltip with each series' nearest point
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--text-muted"), "stroke-width": 1, visibility: "hidden" }, svg);
+  let tip = card.querySelector(".tip");
+  if (!tip) { tip = document.createElement("div"); tip.className = "tip"; card.appendChild(tip); }
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg);
+  hit.addEventListener("mousemove", ev => {
+    const r = svg.getBoundingClientRect(), sx = (ev.clientX - r.left) * (W / r.width);
+    const xv = ((sx - m.l) / (W - m.l - m.r)) * xMax;
+    const rows = series.filter(s => s.points.length).map(s => {
+      const p = s.points.reduce((a, b) => Math.abs(b[0] - xv) < Math.abs(a[0] - xv) ? b : a);
+      return { s, p };
+    });
+    const ex = rows[0].p[0];
+    cross.setAttribute("x1", X(ex)); cross.setAttribute("x2", X(ex)); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>epoch ${ex}</b><br>` + rows.map(({ s, p }) =>
+      `<i style="background:${css(s.color)}"></i>${s.name}: ${fmt(p[1])}${opts.unit || ""}${p[0] !== ex ? ` (ep ${p[0]})` : ""}`).join("<br>");
+    tip.style.display = "block";
+    const left = (X(ex) / W) * r.width + 30, cw = card.clientWidth;
+    tip.style.left = (left + tip.offsetWidth > cw - 8 ? left - tip.offsetWidth - 40 : left) + "px";
+    tip.style.top = (svg.offsetTop + 10) + "px";
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+}
+
+function tile(label, value, note, cls) {
+  return `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="note ${cls || ""}">${note}</div></div>`;
+}
+
+async function refresh() {
+  if (!current) return;
+  const base = `../runs/${current.name}/`;
+  const [mText, tText, sText] = await Promise.all([fetchText(base + "metrics.csv"), fetchText(base + "train_log.csv"), fetchText(base + "summary.json")]);
+  const m = mText ? parseCSV(mText) : [], t = tText ? parseCSV(tText) : [];
+  const cfg = current.cfg, total = cfg.epochs, sw = cfg.surface_weight ?? 1;
+  const done = !!sText;
+  const lastEpoch = Math.max(0, ...t.map(r => r.epoch), ...m.map(r => r.epoch));
+  const recent = (t.length ? t : m).slice(-10).map(r => r.epoch_s);
+  const perEpoch = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  const etaMin = Math.round(((total - lastEpoch) * perEpoch * (t.length ? 1.05 : 1)) / 60);
+  document.getElementById("status").innerHTML =
+    `<span class="live ${done ? "done" : ""}"></span>${done ? "finished" : "training"} · epoch ${lastEpoch} / ${total}` +
+    (done ? "" : ` · ${perEpoch.toFixed(1)} s/epoch · about ${etaMin} min left`) +
+    ` · updated ${new Date().toLocaleTimeString()}`;
+
+  const valLoss = r => (r["val_u/U"] + r["val_v/U"] + r["val_p/U2"] + r["val_nut/nu"]) / 4 + sw * (r.val_surf_p + r.val_surf_tau) / 2;
+  const trainPts = (t.length ? t : m).map(r => [r.epoch, r.train_loss]);
+  lineChart("ch-loss", "lg-loss", [
+    { name: "training loss", short: "train", color: "--s1", points: trainPts },
+    { name: "validation loss", short: "val", color: "--s2", points: m.map(r => [r.epoch, valLoss(r)]) },
+  ], { xMax: total });
+  const pct = (col) => m.map(r => [r.epoch, 100 * r[col]]);
+  lineChart("ch-force", "lg-force", [
+    { name: "CL", color: "--s1", points: pct("val_cl_median_rel") },
+    { name: "CD", color: "--s2", points: pct("val_cd_median_rel") },
+  ], { xMax: total, unit: "%", targets: [{ y: 2, label: "CL target 2%" }, { y: 5, label: "CD target 5%" }] });
+  lineChart("ch-field", "lg-field", [
+    { name: "u", color: "--s1", points: pct("val_u/U") }, { name: "v", color: "--s2", points: pct("val_v/U") },
+    { name: "p", color: "--s3", points: pct("val_p/U2") }, { name: "ν_t", color: "--s4", points: pct("val_nut/nu") },
+  ], { xMax: total, unit: "%", targets: [{ y: 5, label: "target 5% (u, v, p)" }] });
+  lineChart("ch-surf", "lg-surf", [
+    { name: "pressure", color: "--s1", points: pct("val_surf_p") },
+    { name: "wall shear", color: "--s2", points: pct("val_surf_tau") },
+  ], { xMax: total, unit: "%" });
+
+  const last = m[m.length - 1];
+  if (!last) { document.getElementById("tiles").innerHTML = `<div class="empty">No validation results yet; the first arrive after epoch ${cfg.eval_every}.</div>`; return; }
+  const best = m.reduce((a, b) => b.val_score < a.val_score ? b : a);
+  const gap = valLoss(last) / (trainPts.length ? trainPts[trainPts.length - 1][1] : 1);
+  document.getElementById("tiles").innerHTML =
+    tile("CL error (median)", (100 * last.val_cl_median_rel).toFixed(2) + "%", last.val_cl_median_rel < 0.02 ? "meets 2% target" : "target 2%", last.val_cl_median_rel < 0.02 ? "ok" : "off") +
+    tile("CD error (median)", (100 * last.val_cd_median_rel).toFixed(1) + "%", last.val_cd_median_rel < 0.05 ? "meets 5% target" : "target 5%", last.val_cd_median_rel < 0.05 ? "ok" : "off") +
+    tile("CL ranking", last.val_cl_spearman.toFixed(4), last.val_cl_spearman >= 0.98 ? "meets 0.98 target" : "target 0.98", last.val_cl_spearman >= 0.98 ? "ok" : "off") +
+    tile("Validation / training loss", gap.toFixed(2) + "×", "1.0× = no generalization gap") +
+    tile("Best checkpoint", "epoch " + best.epoch, `score ${best.val_score.toFixed(3)}, saved as best.pt`);
+}
+
+async function init() {
+  const runs = await listRuns();
+  const sel = document.getElementById("run");
+  if (!runs.length) { document.getElementById("status").textContent = "no runs found"; return; }
+  runs.sort((a, b) => a.name.localeCompare(b.name));
+  sel.innerHTML = runs.map(r => `<option>${r.name}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("run");
+  const pick = runs.find(r => r.name === want) || runs.find(r => r.name === "R3") || runs[runs.length - 1];
+  sel.value = pick.name; current = pick;
+  sel.onchange = () => { current = runs.find(r => r.name === sel.value); refresh(); };
+  window.addEventListener("resize", refresh);
+  await refresh();
+  timer = setInterval(refresh, REFRESH_MS);
+}
+init();
+</script>
+</body>
+</html>

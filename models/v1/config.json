@@ -1,0 +1,29 @@
+{
+  "run_id": "R3",
+  "data": "/home/th12-dv/FNO_wing/data/airfrans_128x256.h5",
+  "task": "full",
+  "n_train": 0,
+  "modes": 32,
+  "width": 64,
+  "layers": 4,
+  "padding": 0.125,
+  "head_width": 128,
+  "head_conv_layers": 4,
+  "head_kernel": 9,
+  "surface_weight": 1.0,
+  "epochs": 500,
+  "batch": 16,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "warmup": 5,
+  "eval_every": 10,
+  "seed": 0,
+  "n_train_cases": 720,
+  "n_val_cases": 80,
+  "box": [
+    -0.5,
+    1.5,
+    -0.5,
+    0.5
+  ]
+}

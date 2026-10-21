@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Airfoil simulator</title>
+<style>
+  :root {
+    --surface-0: #f4f3ef; --surface-1: #fcfcfb; --border: #e4e3dd; --grid: #ecebe6;
+    --text-primary: #1f1f1e; --text-secondary: #5f5e5a; --text-muted: #8a8983; --accent: #2a78d6;
+    --s1: #2a78d6; --s2: #eb6834; --warn-bg: #fbf0dc; --warn-ink: #7a4b00; --arrow: rgba(25,25,24,.72);
+    --solid: #6b6a65;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #33332f; --grid: #2a2a27;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --accent: #3987e5;
+      --s1: #3987e5; --s2: #d95926; --warn-bg: #3a2c12; --warn-ink: #f2c46d; --arrow: rgba(255,255,255,.75);
+      --solid: #55544f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 18px 20px 28px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 14px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .muted { color: var(--text-secondary); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 290px 1fr; gap: 14px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+  .controls { display: flex; flex-direction: column; gap: 14px; align-self: start; position: sticky; top: 12px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; border: 0; padding: 7px 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .name { font-size: 22px; font-weight: 600; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .ctl { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: baseline; }
+  .ctl label { font-size: 13px; color: var(--text-secondary); }
+  .ctl output { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .ctl .hint { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-secondary); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .presets button, .tog button { font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 999px; cursor: pointer;
+                     border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); }
+  .tog button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 8px 10px; font-size: 13px; display: none; }
+  .main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .tile .k { font-size: 12px; color: var(--text-secondary); }
+  .tile .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .fieldhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .tog { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  canvas#field { width: 100%; display: block; border-radius: 6px; aspect-ratio: 2 / 1; background: var(--surface-0); }
+  .legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+  .legend canvas { height: 10px; width: 240px; border-radius: 3px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .chart { position: relative; }
+  .chart svg { width: 100%; height: 230px; display: block; overflow: visible; }
+  svg text { font-size: 11px; fill: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .key { display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary); margin: -2px 0 4px; flex-wrap: wrap; }
+  .key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 5px; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+         padding: 5px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; white-space: nowrap; font-variant-numeric: tabular-nums; z-index: 3; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .controls { position: static; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Airfoil simulator</h1>
+  <span class="muted" id="model">loading model…</span>
+</header>
+<div class="layout">
+  <aside class="card controls">
+    <div class="seg" id="family"><button data-f="naca4" class="on">NACA 4-digit</button><button data-f="naca5">NACA 5-digit</button></div>
+    <div><div class="name" id="name">NACA 2412</div><div class="muted" id="nameNote">continuous parameters, nearest standard name</div></div>
+    <div id="shape4">
+      <div class="ctl"><label for="m">Maximum camber</label><output id="m_o"></output><input type="range" id="m" min="0" max="7" step="0.1" value="2"></div>
+      <div class="ctl"><label for="p">Camber position</label><output id="p_o"></output><input type="range" id="p" min="0" max="7" step="0.1" value="4"><div class="hint">where the camber is largest, from the leading edge</div></div>
+    </div>
+    <div id="shape5" style="display:none">
+      <div class="ctl"><label for="L">Design lift</label><output id="L_o"></output><input type="range" id="L" min="0" max="4" step="0.05" value="2"><div class="hint">design lift coefficient = 0.15 × this digit</div></div>
+      <div class="ctl"><label for="P">Camber position</label><output id="P_o"></output><input type="range" id="P" min="3" max="8" step="0.05" value="3"></div>
+      <label class="check"><input type="checkbox" id="Q"> Reflex camber (S-shaped camber line)</label>
+    </div>
+    <div class="ctl"><label for="t">Thickness</label><output id="t_o"></output><input type="range" id="t" min="5" max="20" step="0.1" value="12"></div>
+    <div class="ctl"><label for="aoa">Angle of attack</label><output id="aoa_o"></output><input type="range" id="aoa" min="-5" max="15" step="0.1" value="4"></div>
+    <div class="ctl"><label for="re">Reynolds number</label><output id="re_o"></output><input type="range" id="re" min="2" max="6" step="0.05" value="3"><div class="hint" id="re_hint"></div></div>
+    <div class="presets" id="presets"></div>
+    <label class="check"><input type="checkbox" id="extra"> Allow values outside the training range</label>
+    <div class="warn" id="warn"></div>
+  </aside>
+  <section class="main">
+    <div class="tiles" id="tiles"></div>
+    <div class="card">
+      <div class="fieldhead">
+        <h2 style="margin:0" id="fieldTitle">Pressure coefficient around the airfoil</h2>
+        <div class="tog" id="fieldTog"><button data-v="cp" class="on">Pressure</button><button data-v="speed">Speed</button><button data-v="nut">Turbulence</button>
+          <label class="check" style="margin-left:6px"><input type="checkbox" id="arrows" checked> Flow arrows</label></div>
+      </div>
+      <canvas id="field"></canvas>
+      <div class="legend"><span id="lgLo"></span><canvas id="bar" width="240" height="10"></canvas><span id="lgHi"></span><span id="lgNote"></span></div>
+    </div>
+    <div class="charts">
+      <div class="card chart"><h2>Surface pressure</h2><div class="key"><span><i style="background:var(--s1)"></i>lower surface</span><span><i style="background:var(--s2)"></i>upper surface</span></div><svg id="cpChart"></svg></div>
+      <div class="card chart"><h2>Lift curve</h2><div class="key"><span><i style="background:var(--s1)"></i>CL at this shape and Re</span></div><svg id="clChart"></svg></div>
+      <div class="card chart"><h2>Drag curve</h2><div class="key"><span><i style="background:var(--s2)"></i>CD at this shape and Re</span></div><svg id="cdChart"></svg></div>
+    </div>
+  </section>
+</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS = "http://www.w3.org/2000/svg";
+const NU = 1.56e-5;
+const TRAIN = { m: [0, 7], p: [0, 7], L: [0, 4], P: [3, 8], t: [5, 20], aoa: [-5, 15], re: [2, 6] };
+const WIDE = { m: [0, 10], p: [0, 9], L: [0, 6], P: [2, 10], t: [3, 30], aoa: [-10, 20], re: [0.5, 10] };
+const PRESETS = [
+  { n: "NACA 0012", f: "naca4", m: 0, p: 0, t: 12 }, { n: "NACA 2412", f: "naca4", m: 2, p: 4, t: 12 },
+  { n: "NACA 4415", f: "naca4", m: 4, p: 4, t: 15 }, { n: "NACA 6409", f: "naca4", m: 6, p: 4, t: 9 },
+  { n: "NACA 23012", f: "naca5", L: 2, P: 3, Q: 0, t: 12 }, { n: "NACA 24112", f: "naca5", L: 2, P: 4, Q: 1, t: 12 },
+];
+let family = "naca4", view = "cp", last = null, polar = null;
+let busy = false, pending = false, polarTimer = null, polarKey = "";
+
+// ---------- controls ----------
+const fmtCtl = {
+  m: v => v.toFixed(1) + "% of chord", p: v => (v * 10).toFixed(0) + "% of chord", t: v => v.toFixed(1) + "% of chord",
+  L: v => "CL " + (0.15 * v).toFixed(2), P: v => (v * 5).toFixed(0) + "% of chord",
+  aoa: v => v.toFixed(1) + "°", re: v => v.toFixed(2) + " million",
+};
+function val(id) { return +$(id).value; }
+function setRanges() {
+  const R = $("extra").checked ? WIDE : TRAIN;
+  for (const id in R) { const e = $(id); e.min = R[id][0]; e.max = R[id][1]; }
+}
+function params() {
+  return family === "naca4" ? [val("m"), val("p"), val("t")] : [val("L"), val("P"), $("Q").checked ? 1 : 0, val("t")];
+}
+function designation() {
+  const r = Math.round, tt = String(r(val("t"))).padStart(2, "0");
+  return family === "naca4" ? `NACA ${r(val("m"))}${r(val("p"))}${tt}` : `NACA ${r(val("L"))}${r(val("P"))}${$("Q").checked ? 1 : 0}${tt}`;
+}
+function updateLabels() {
+  for (const id in fmtCtl) $(id + "_o").textContent = fmtCtl[id](val(id));
+  $("re_hint").textContent = `freestream ${(val("re") * 1e6 * NU).toFixed(1)} m/s for a 1 m chord`;
+  $("name").textContent = designation();
+  $("shape4").style.display = family === "naca4" ? "" : "none";
+  $("shape5").style.display = family === "naca5" ? "" : "none";
+}
+function onChange(shapeChanged) {
+  updateLabels();
+  request();
+  if (shapeChanged) { clearTimeout(polarTimer); polarTimer = setTimeout(requestPolar, 120); }
+}
+for (const id of ["m", "p", "L", "P", "t", "re"]) $(id).addEventListener("input", () => onChange(true));
+$("Q").addEventListener("change", () => onChange(true));
+$("aoa").addEventListener("input", () => onChange(false));
+$("extra").addEventListener("change", () => { setRanges(); onChange(true); });
+document.querySelectorAll("#family button").forEach(b => b.onclick = () => {
+  family = b.dataset.f;
+  document.querySelectorAll("#family button").forEach(x => x.classList.toggle("on", x === b));
+  onChange(true);
+});
+document.querySelectorAll("#fieldTog button").forEach(b => b.onclick = () => {
+  view = b.dataset.v;
+  document.querySelectorAll("#fieldTog button").forEach(x => x.classList.toggle("on", x === b));
+  drawField();
+});
+$("arrows").onchange = drawField;
+$("presets").innerHTML = PRESETS.map((p, i) => `<button data-i="${i}">${p.n}</button>`).join("");
+$("presets").onclick = e => {
+  const p = PRESETS[e.target.dataset.i]; if (!p) return;
+  family = p.f;
+  document.querySelectorAll("#family button").forEach(x => x.classList.toggle("on", x.dataset.f === family));
+  for (const k of ["m", "p", "L", "P", "t"]) if (p[k] !== undefined) $(k).value = p[k];
+  if (p.Q !== undefined) $("Q").checked = !!p.Q;
+  onChange(true);
+};
+
+// ---------- requests (latest wins, one in flight) ----------
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", body: JSON.stringify(body) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+async function request() {
+  if (busy) { pending = true; return; }
+  busy = true; pending = false;
+  const t0 = performance.now();
+  try {
+    last = await post("/api/predict", { family, params: params(), aoa: val("aoa"), re: val("re") * 1e6 });
+    last.roundtrip = performance.now() - t0;
+    decode(last.field);
+    render();
+  } catch (e) { $("warn").style.display = "block"; $("warn").textContent = "Prediction failed: " + e.message; }
+  busy = false;
+  if (pending) request();
+}
+async function requestPolar() {
+  const lo = +$("aoa").min, hi = +$("aoa").max;
+  const key = JSON.stringify([family, params(), val("re"), lo, hi]);
+  if (key === polarKey) return;
+  polarKey = key;
+  try {
+    const p = await post("/api/polar", { family, params: params(), re: val("re") * 1e6, aoa_min: lo, aoa_max: hi });
+    if (key === polarKey) { polar = p; drawPolars(); }
+  } catch (e) { /* the main prediction reports errors */ }
+}
+function f32(b64) { const s = atob(b64), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return new Float32Array(b.buffer); }
+function u8(b64) { const s = atob(b64), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
+function decode(f) { f.cpA = f32(f.cp); f.uxA = f32(f.ux); f.uyA = f32(f.uy); f.nutA = f32(f.nut); f.fluidA = u8(f.fluid); }
+
+// ---------- rendering ----------
+function render() {
+  const d = last, P = d.parts;
+  const ld = d.cl / d.cd;
+  $("tiles").innerHTML = [
+    ["Lift coefficient CL", d.cl.toFixed(3), `pressure ${P.clp.toFixed(3)}`],
+    ["Drag coefficient CD", d.cd.toFixed(4), `pressure ${P.cdp.toFixed(4)} · friction ${P.cdv.toFixed(4)}`],
+    ["Lift / drag", isFinite(ld) ? ld.toFixed(1) : "—", "CL / CD"],
+    ["Friction share of drag", (100 * P.cdv / d.cd).toFixed(0) + "%", "skin friction vs pressure drag"],
+    ["Model time", d.ms.toFixed(1) + " ms", `round trip ${d.roundtrip.toFixed(0)} ms`],
+  ].map(([k, v, s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+  const off = d.off_range;
+  const names = { camber: "camber", position: "camber position", thickness: "thickness", design_cl: "design lift", aoa: "angle of attack", re: "Reynolds number" };
+  $("warn").style.display = off.length ? "block" : "none";
+  $("warn").textContent = off.length ? `Outside the training range: ${off.map(o => names[o] || o).join(", ")}. The model is extrapolating; treat these numbers as unverified.` : "";
+  drawField();
+  drawCp();
+  drawPolars();
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const mix = (c1, c2, t) => [0, 1, 2].map(i => Math.round(lerp(c1[i], c2[i], Math.max(0, Math.min(1, t)))));
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function dark() { return matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light"; }
+function maps() {
+  const mid = dark() ? hex("#2c2c29") : hex("#f3f2ee");
+  const blue = [hex("#86b6ef"), hex("#2a78d6"), hex("#0d366b")], red = [hex("#f5b9a0"), hex("#e0602c"), hex("#8a2b0f")];
+  const ramp = (stops, t) => t < .5 ? mix(stops[0], stops[1], t * 2) : mix(stops[1], stops[2], t * 2 - 1);
+  return {
+    cp: { lo: null, hi: 1, color: (v, lo) => v < 0 ? (v / lo < .15 ? mix(mid, blue[0], v / lo / .15) : ramp(blue, (v / lo - .15) / .85))
+                                                  : (v < .15 ? mix(mid, red[0], v / .15) : ramp(red, (v - .15) / .85)) },
+    speed: { color: (v, lo, hi) => { const t = (v - lo) / (hi - lo); return t < .5 ? mix(dark() ? hex("#1f2d3d") : hex("#e7f0fb"), hex("#3987e5"), t * 2) : mix(hex("#3987e5"), dark() ? hex("#cde2fb") : hex("#0d366b"), t * 2 - 1); } },
+    nut: { color: (v, lo, hi) => { const t = Math.sqrt(Math.max(0, v) / hi); return t < .5 ? mix(mid, hex("#eda100"), t * 2) : mix(hex("#eda100"), hex("#8a2b0f"), t * 2 - 1); } },
+  };
+}
+function drawField() {
+  if (!last) return;
+  const f = last.field, { H, W } = f, cv = $("field");
+  const cw = cv.clientWidth, ch = cw / 2, dpr = devicePixelRatio || 1;
+  cv.width = cw * dpr; cv.height = ch * dpr;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const M = maps(), N = H * W, speed = new Float32Array(N);
+  for (let i = 0; i < N; i++) speed[i] = Math.hypot(f.uxA[i], f.uyA[i]);
+  const src = view === "cp" ? f.cpA : view === "speed" ? speed : f.nutA;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < N; i++) if (f.fluidA[i]) { lo = Math.min(lo, src[i]); hi = Math.max(hi, src[i]); }
+  if (view === "cp") { lo = Math.min(lo, -0.2); hi = 1; }
+  if (view === "nut") lo = 0;
+  const img = new ImageData(W, H), solid = hex(dark() ? "#55544f" : "#6b6a65");
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    const i = (H - 1 - r) * W + c, o = (r * W + c) * 4;   // grid rows run bottom to top
+    const rgb = f.fluidA[i] ? M[view].color(src[i], lo, hi) : solid;
+    img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = 255;
+  }
+  const off = new OffscreenCanvas(W, H); off.getContext("2d").putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(off, 0, 0, cw, ch);
+  const [x0, x1, y0, y1] = f.box, X = x => (x - x0) / (x1 - x0) * cw, Y = y => (1 - (y - y0) / (y1 - y0)) * ch;
+  // the true airfoil outline on top of the gridded solid cells
+  const s = last.surface;
+  ctx.beginPath(); s.x.forEach((x, i) => i ? ctx.lineTo(X(x), Y(s.y[i])) : ctx.moveTo(X(x), Y(s.y[i]))); ctx.closePath();
+  ctx.fillStyle = css("--solid"); ctx.fill();
+  if ($("arrows").checked) {
+    const step = 8, cell = cw / W * step, scale = 0.8 * cell;  // a freestream arrow fills 80% of its cell
+    ctx.strokeStyle = css("--arrow"); ctx.fillStyle = css("--arrow"); ctx.lineWidth = 1.2;
+    for (let r = step / 2; r < H; r += step) for (let c = step / 2; c < W; c += step) {
+      const i = r * W + c; if (!f.fluidA[i]) continue;
+      const vx = f.uxA[i], vy = f.uyA[i], len = Math.hypot(vx, vy) * scale; if (len < 1.5) continue;
+      const cx = (c + 0.5) / W * cw, cy = (1 - (r + 0.5) / H) * ch, ux = vx / Math.hypot(vx, vy), uy = -vy / Math.hypot(vx, vy);
+      const ex = cx + ux * len / 2, ey = cy + uy * len / 2, sx = cx - ux * len / 2, sy = cy - uy * len / 2;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+      const hs = Math.min(4, len * 0.35);
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - ux * hs - uy * hs * .6, ey - uy * hs + ux * hs * .6);
+      ctx.lineTo(ex - ux * hs + uy * hs * .6, ey - uy * hs - ux * hs * .6); ctx.closePath(); ctx.fill();
+    }
+  }
+  // legend
+  const bar = $("bar").getContext("2d");
+  for (let k = 0; k < 240; k++) { const v = lo + (hi - lo) * k / 239; const c = M[view].color(v, lo, hi); bar.fillStyle = `rgb(${c})`; bar.fillRect(k, 0, 1, 10); }
+  const titles = { cp: "Pressure coefficient around the airfoil", speed: "Flow speed around the airfoil", nut: "Turbulent viscosity around the airfoil" };
+  const notes = { cp: "Cp: blue = suction, red = compression (1 = stagnation)", speed: "|u| / U∞", nut: "ν_t / ν, square-root scale" };
+  $("fieldTitle").textContent = titles[view];
+  $("lgLo").textContent = view === "nut" ? "0" : lo.toFixed(2); $("lgHi").textContent = view === "nut" ? hi.toFixed(0) : hi.toFixed(2);
+  $("lgNote").textContent = notes[view] + ($("arrows").checked ? " · arrows: direction and speed" : "");
+}
+
+function chart(svgId, series, opt) {
+  const svg = $(svgId), card = svg.parentElement; svg.innerHTML = "";
+  const W = Math.max(svg.clientWidth, 280), H = 230, m = { l: 46, r: 14, t: 8, b: 30 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const pts = series.flatMap(s => s.pts); if (!pts.length) return;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]).concat(opt.extraY || []);
+  const xlo = opt.xlo ?? Math.min(...xs), xhi = opt.xhi ?? Math.max(...xs);
+  let ylo = Math.min(...ys), yhi = Math.max(...ys); const pad = (yhi - ylo) * 0.08 || 0.1; ylo -= pad; yhi += pad;
+  const X = x => m.l + (x - xlo) / (xhi - xlo) * (W - m.l - m.r);
+  const Y = y => opt.invert ? m.t + (y - ylo) / (yhi - ylo) * (H - m.t - m.b) : m.t + (1 - (y - ylo) / (yhi - ylo)) * (H - m.t - m.b);
+  const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+  const nice = (lo, hi, n) => { const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw)), st = [1, 2, 2.5, 5, 10].find(s => s * mag >= raw) * mag; const t = []; for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-12; v += st) t.push(+v.toFixed(10)); return t; };
+  for (const v of nice(ylo, yhi, 5)) { el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid") }); el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" }).textContent = opt.yfmt ? opt.yfmt(v) : v; }
+  for (const v of nice(xlo, xhi, 5)) { el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: css("--grid") }); el("text", { x: X(v), y: H - 12, "text-anchor": "middle" }).textContent = v; }
+  el("text", { x: W - m.r, y: H - 0, "text-anchor": "end" }).textContent = opt.xlabel;
+  el("text", { x: 4, y: m.t + 4 }).textContent = opt.ylabel;
+  if (opt.zero) el("line", { x1: m.l, x2: W - m.r, y1: Y(0), y2: Y(0), stroke: css("--text-muted"), "stroke-width": 0.8 });
+  for (const s of series) {
+    const d = s.pts.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", stroke: css(s.color), "stroke-width": 2, "stroke-linejoin": "round" });
+  }
+  if (opt.marker && opt.marker[0] >= xlo && opt.marker[0] <= xhi) { el("circle", { cx: X(opt.marker[0]), cy: Y(opt.marker[1]), r: 5, fill: css(opt.markerColor), stroke: css("--surface-1"), "stroke-width": 2 }); }
+  let tip = card.querySelector(".tip"); if (!tip) { tip = document.createElement("div"); tip.className = "tip"; card.appendChild(tip); }
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--text-muted"), visibility: "hidden" });
+  hit.onmousemove = ev => {
+    const r = svg.getBoundingClientRect(), xv = xlo + ((ev.clientX - r.left) * W / r.width - m.l) / (W - m.l - m.r) * (xhi - xlo);
+    const rows = series.map(s => [s, s.pts.reduce((a, b) => Math.abs(b[0] - xv) < Math.abs(a[0] - xv) ? b : a)]);
+    cross.setAttribute("x1", X(rows[0][1][0])); cross.setAttribute("x2", X(rows[0][1][0])); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = rows.map(([s, p]) => `${s.name}: ${opt.xlabel.split(" ")[0]} ${p[0].toFixed(2)}, ${opt.tipY(p[1])}`).join("<br>");
+    tip.style.display = "block"; tip.style.left = Math.min((ev.clientX - card.getBoundingClientRect().left) + 14, card.clientWidth - tip.offsetWidth - 8) + "px"; tip.style.top = "40px";
+  };
+  hit.onmouseleave = () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); };
+}
+function drawCp() {
+  const s = last.surface, le = s.le;
+  const lower = s.x.slice(0, le + 1).map((x, i) => [x, s.cp[i]]);
+  const upper = s.x.slice(le).map((x, i) => [x, s.cp[le + i]]).concat([[s.x[0], s.cp[0]]]);
+  chart("cpChart", [{ name: "lower", color: "--s1", pts: lower }, { name: "upper", color: "--s2", pts: upper }],
+        { xlabel: "x / c", ylabel: "Cp (suction up)", invert: true, xlo: 0, xhi: 1, tipY: v => "Cp " + v.toFixed(3) });
+}
+function drawPolars() {
+  if (!polar || !last) return;
+  chart("clChart", [{ name: "CL", color: "--s1", pts: polar.aoa.map((a, i) => [a, polar.cl[i]]) }],
+        { xlabel: "angle of attack (°)", ylabel: "CL", marker: [val("aoa"), last.cl], markerColor: "--s1", zero: true, tipY: v => "CL " + v.toFixed(3) });
+  chart("cdChart", [{ name: "CD", color: "--s2", pts: polar.aoa.map((a, i) => [a, polar.cd[i]]) }],
+        { xlabel: "angle of attack (°)", ylabel: "CD", marker: [val("aoa"), last.cd], markerColor: "--s2", tipY: v => "CD " + v.toFixed(4), yfmt: v => v.toFixed(3) });
+}
+window.addEventListener("resize", () => last && render());
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => last && render());
+
+fetch("/api/info").then(r => r.json()).then(i => { $("model").textContent = `model ${i.run} (FNO + surface head, epoch ${i.epoch}) · trained on AirfRANS: NACA 4/5-digit, Re 2–6 M, AoA −5 to 15°`; });
+setRanges(); onChange(true);
+</script>
+</body>
+</html>
