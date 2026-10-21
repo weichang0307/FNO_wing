@@ -3,10 +3,11 @@ data/*
 !data/surface_template_sides.npz
 !data/norm_stats_full_128x256.json
 
-# training runs and checkpoints (this also excludes models/v1/best.pt)
+# training runs and checkpoints; frozen model versions in models/ are kept
 runs/
 runs_*.log
 *.pt
+!models/v1/best.pt
 
 # Python
 __pycache__/

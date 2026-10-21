@@ -3,7 +3,8 @@
 Serves simulator/index.html and two endpoints backed by the trained model on the GPU:
   POST /api/predict {family, params, aoa, re}  -> forces, surface Cp and the flow field
   POST /api/polar   {family, params, re}       -> CL and CD from -5 to 15 degrees in one batch
-Usage: python simulator/server.py [--run R3 --port 8770]
+Usage: python simulator/server.py [--run v1 --port 8770 --device auto]
+Runs on an NVIDIA GPU, an Apple GPU or the CPU (--device auto picks the fastest that works).
 """
 import argparse
 import base64
@@ -51,8 +52,11 @@ def predict(family, params, aoa, re):
                    fluid=b64(info["fluid"], np.uint8)))
 
 
+POLAR_STEP = 1.0  # degrees between points on the lift and drag curves; 2 without an NVIDIA GPU
+
+
 def polar(family, params, re, lo=-5.0, hi=15.0):
-    aoa = list(np.arange(lo, hi + 0.01, 1.0))  # follows the page's angle slider, 1 degree apart
+    aoa = list(np.arange(lo, hi + 0.01, POLAR_STEP))  # follows the page's angle slider
     with lock:
         out, info = pred.predict(params, aoa, re)
     return dict(aoa=aoa, cl=[o["cl"] for o in out], cd=[o["cd"] for o in out], ms=info["ms"])
@@ -67,7 +71,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/api/info"):
-            return self.send_json(dict(run=pred.run, epoch=pred.epoch, ranges=RANGES))
+            return self.send_json(dict(run=pred.run, epoch=pred.epoch, ranges=RANGES, device=pred.dev))
         return super().do_GET()
 
     def do_POST(self):
@@ -94,13 +98,18 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    global pred
+    global pred, POLAR_STEP
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", default="R3")
+    ap.add_argument("--run", default="v1")
     ap.add_argument("--port", type=int, default=8770)
+    ap.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     args = ap.parse_args()
-    pred = Predictor(args.run)
-    pred.predict([2, 4, 12], [0.0], 3e6)  # warm up the GPU and build the spacing template
+    pred = Predictor(args.run, dev=args.device)
+    if pred.dev != "cuda":
+        POLAR_STEP = 2.0  # half the angles keeps the curves quick without an NVIDIA GPU
+    _, info = pred.predict([2, 4, 12], [0.0], 3e6)  # warm up and build the spacing template
+    _, info = pred.predict([2, 4, 12], [0.0], 3e6)
+    print(f"device: {pred.dev}, one prediction {info['ms']:.0f} ms", flush=True)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     except OSError as e:

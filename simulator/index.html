@@ -352,7 +352,7 @@ function drawPolars() {
 window.addEventListener("resize", () => last && render());
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => last && render());
 
-fetch("/api/info").then(r => r.json()).then(i => { $("model").textContent = `model ${i.run} (FNO + surface head, epoch ${i.epoch}) · trained on AirfRANS: NACA 4/5-digit, Re 2–6 M, AoA −5 to 15°`; });
+fetch("/api/info").then(r => r.json()).then(i => { $("model").textContent = `model ${i.run} (FNO + surface head, epoch ${i.epoch}) on ${({cuda: "NVIDIA GPU", mps: "Apple GPU", cpu: "CPU"})[i.device] || i.device} · trained on AirfRANS: NACA 4/5-digit, Re 2–6 M, AoA −5 to 15°`; });
 setRanges(); onChange(true);
 </script>
 </body>

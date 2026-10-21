@@ -1,0 +1,9 @@
+# Interactive airfoil simulator (simulator/server.py) on a machine without the training data,
+# e.g. a Mac. Versions are the ones v1 was trained and tested with.
+# The macOS PyTorch wheel includes Apple GPU (MPS) support; no CUDA build is needed.
+torch==2.11.0
+neuraloperator==2.0.0
+numpy==2.4.6
+scipy==1.17.1
+matplotlib==3.11.2
+h5py==3.16.0
